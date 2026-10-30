@@ -110,7 +110,7 @@ document.getElementById('makeOfferBtn').onclick=async()=>{
   await waitIceComplete(pc);
   const code=encodeSDP(pc.localDescription);
   const out=document.getElementById('qrOut'); out.innerHTML='';
-  new QRCode(out,{text:code,width:256,height:256});
+  new QRCode(out,{text:code,width:512,height:512,correctLevel:QRCode.CorrectLevel.L});
   document.getElementById('offerCode').value=code;
   hlog('Offer QR generated. Scan with iPhone, or copy the code below.');
 };
@@ -153,7 +153,7 @@ document.getElementById('scanOfferBtn').onclick=()=>{
         await waitIceComplete(pc);
         const code=encodeSDP(pc.localDescription);
         const out=document.getElementById('qrOut2'); out.innerHTML='';
-        new QRCode(out,{text:code,width:256,height:256});
+        new QRCode(out,{text:code,width:512,height:512,correctLevel:QRCode.CorrectLevel.L});
         document.getElementById('answerCode').value=code;
         jlog('Answer QR generated. Scan with iPad, or copy the code below.');
       }catch(e){jlog('Bad QR: '+e)}
@@ -172,7 +172,7 @@ document.getElementById('applyOfferBtn').onclick=async()=>{
     await waitIceComplete(pc);
     const code=encodeSDP(pc.localDescription);
     const out=document.getElementById('qrOut2'); out.innerHTML='';
-    new QRCode(out,{text:code,width:256,height:256});
+    new QRCode(out,{text:code,width:512,height:512,correctLevel:QRCode.CorrectLevel.L});
     document.getElementById('answerCode').value=code;
     jlog('Answer QR generated. Scan with iPad, or copy the code below.');
   }catch(e){jlog('Bad code: '+e)}
