@@ -40,6 +40,10 @@
     <button id="connectBtn">Connect</button>
   </div>
   <div id="scanRegion"></div>
+  <div class="row">
+    <input id="manualInput" placeholder="Or type barcode manually">
+    <button id="manualBtn" class="secondary">Send manually</button>
+  </div>
   <p class="status">Status: <span id="jstatus">not connected</span></p>
   <p class="status">Last scanned: <span id="scanned"></span></p>
   <button id="testBtn" class="secondary">Send test message</button>
@@ -130,6 +134,13 @@ document.getElementById('connectBtn').onclick=()=>{
   ).catch(e=>jlog('Camera error: '+e));
 };
 
+document.getElementById('manualBtn').onclick=()=>{
+  const v=document.getElementById('manualInput').value.trim();
+  if(!v){jlog('Enter a barcode');return;}
+  document.getElementById('scanned').textContent=v;
+  jlog('Manual: '+v);
+  publish(v).then(()=>jlog('Published OK')).catch(e=>jlog('Publish error: '+e));
+};
 document.getElementById('testBtn').onclick=()=>{
   if(!room){jlog('Not connected');return;}
   const t='TEST-'+Date.now();
