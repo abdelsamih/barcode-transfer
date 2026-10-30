@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Barcode Transfer (MQTT relay)</title>
+<title>Barcode Transfer (ntfy relay)</title>
 <style>
   body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#111;color:#eee}
   h1{font-size:1.15rem;margin:0 0 12px}
@@ -14,11 +14,11 @@
   #scanRegion{width:100%;max-width:420px;margin:12px 0;border-radius:12px;overflow:hidden}
   .status{font-size:.9rem;color:#9ca3af;margin:6px 0}
   .log{font-family:monospace;font-size:.85rem;background:#1f2937;padding:8px;border-radius:8px;max-height:200px;overflow:auto;white-space:pre-wrap}
-  .big{font-size:1.4rem;font-weight:700;color:#34d399}
+  .big{font-size:1.2rem;font-weight:700;color:#34d399;word-break:break-all}
 </style>
 </head>
 <body>
-<h1>Barcode → Clipboard (MQTT relay)</h1>
+<h1>Barcode → Clipboard (ntfy relay)</h1>
 
 <div class="row">
   <button id="hostBtn">I'm the iPad (Receive)</button>
@@ -44,39 +44,33 @@
   <div class="log" id="jlog"></div>
 </div>
 
-<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
 const hlog=m=>{const d=document.getElementById('hlog');d.textContent=m+"\n"+d.textContent};
 const jlog=m=>{const d=document.getElementById('jlog');d.textContent=m+"\n"+d.textContent};
 
-let client, room;
-
-function connectMqtt(onReady){
-  client=mqtt.connect('wss://broker.hivemq.com:8884/mqtt',{clientId:'bc-'+Math.random().toString(36).slice(2,10)});
-  client.on('connect',()=>{ onReady(); });
-  client.on('error',e=>{hlog('MQTT error: '+e); jlog('MQTT error: '+e)});
-  client.on('reconnect',()=>{hlog('reconnecting…');jlog('reconnecting…')});
-  client.on('message',(topic,msg)=>{
-    if(document.getElementById('hostPanel').style.display!=='none'){
-      const t=msg.toString();
-      document.getElementById('recv').textContent=t;
-      hlog('Received: '+t);
-      navigator.clipboard.writeText(t).then(()=>hlog('Copied to clipboard')).catch(()=>hlog('Clipboard blocked'));
-    }
-  });
-}
+let room, es;
 
 document.getElementById('hostBtn').onclick=()=>{
   document.getElementById('hostPanel').style.display='block';
   document.getElementById('joinPanel').style.display='none';
-  room='bc-'+Math.random().toString(36).slice(2,8);
+  room='bc-'+Math.random().toString(36).slice(2,12);
   document.getElementById('code').textContent=room;
-  connectMqtt(()=>{
-    document.getElementById('hstatus').textContent='connected (waiting for phone)';
-    hlog('Connected to broker. Room: '+room);
-    client.subscribe('barcodexfer/'+room,{qos:1},(err)=>{ if(err) hlog('Subscribe error: '+err); else hlog('Subscribed OK'); });
-  });
+  document.getElementById('hstatus').textContent='listening…';
+  hlog('Room: '+room);
+  es=new EventSource('https://ntfy.sh/'+room+'/sse');
+  es.onopen=()=>{hlog('SSE connected');document.getElementById('hstatus').textContent='connected (waiting for phone)'};
+  es.onerror=e=>{hlog('SSE error');document.getElementById('hstatus').textContent='error'};
+  es.onmessage=e=>{
+    try{
+      const data=JSON.parse(e.data);
+      if(data.event!=='message') return;
+      const t=data.message;
+      document.getElementById('recv').textContent=t;
+      hlog('Received: '+t);
+      navigator.clipboard.writeText(t).then(()=>hlog('Copied to clipboard')).catch(()=>hlog('Clipboard blocked'));
+    }catch(err){hlog('Parse error: '+err)}
+  };
 };
 
 document.getElementById('joinBtn').onclick=()=>{
@@ -84,27 +78,31 @@ document.getElementById('joinBtn').onclick=()=>{
   document.getElementById('hostPanel').style.display='none';
 };
 
+async function publish(text){
+  const r=await fetch('https://ntfy.sh/'+room,{method:'POST',body:text});
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  return r;
+}
+
 document.getElementById('connectBtn').onclick=()=>{
   room=document.getElementById('codeInput').value.trim();
   if(!room){alert('Enter room code');return;}
-  connectMqtt(()=>{
-    document.getElementById('jstatus').textContent='connected';
-    jlog('Connected to broker. Room: '+room);
-    const qr=new Html5Qrcode('scanRegion');
-    qr.start({facingMode:'environment'},{fps:10,qrbox:250},
-      txt=>{
-        document.getElementById('scanned').textContent=txt;
-        jlog('Scanned: '+txt);
-        client.publish('barcodexfer/'+room, txt, {qos:1},(err)=>{ if(err) jlog('Publish error: '+err); else jlog('Published OK'); });
-      },()=>{}
-    ).catch(e=>jlog('Camera error: '+e));
-  });
+  document.getElementById('jstatus').textContent='connected';
+  jlog('Room: '+room);
+  const qr=new Html5Qrcode('scanRegion');
+  qr.start({facingMode:'environment'},{fps:10,qrbox:250},
+    txt=>{
+      document.getElementById('scanned').textContent=txt;
+      jlog('Scanned: '+txt);
+      publish(txt).then(()=>jlog('Published OK')).catch(e=>jlog('Publish error: '+e));
+    },()=>{}
+  ).catch(e=>jlog('Camera error: '+e));
 };
 
 document.getElementById('testBtn').onclick=()=>{
-  if(!client||!room){jlog('Not connected');return;}
+  if(!room){jlog('Not connected');return;}
   const t='TEST-'+Date.now();
-  client.publish('barcodexfer/'+room, t, {qos:1},(err)=>{ if(err) jlog('Publish error: '+err); else jlog('Published test: '+t); });
+  publish(t).then(()=>jlog('Published test: '+t)).catch(e=>jlog('Publish error: '+e));
 };
 </script>
 </body>
