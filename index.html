@@ -29,6 +29,8 @@
   <p class="status">Room code: <span class="big" id="code"></span></p>
   <p class="status">Status: <span id="hstatus">connecting…</span></p>
   <p class="status">Last received: <span class="big" id="recv"></span></p>
+  <textarea id="recvText" rows="2" style="width:100%;font-size:1rem" readonly></textarea>
+  <button id="copyBtn" class="secondary" style="display:none">Copy to clipboard</button>
   <div class="log" id="hlog"></div>
 </div>
 
@@ -68,11 +70,22 @@ document.getElementById('hostBtn').onclick=()=>{
       const t=data.message;
       document.getElementById('recv').textContent=t;
       hlog('Received: '+t);
-      navigator.clipboard.writeText(t).then(()=>hlog('Copied to clipboard')).catch(()=>hlog('Clipboard blocked'));
+      const ta=document.getElementById('recvText');
+      ta.value=t; ta.select();
+      navigator.clipboard.writeText(t).then(()=>hlog('Copied to clipboard')).catch(()=>{
+        hlog('Clipboard blocked — tap Copy button');
+        document.getElementById('copyBtn').style.display='inline-block';
+      });
     }catch(err){hlog('Parse error: '+err)}
   };
 };
 
+document.getElementById('copyBtn').onclick=()=>{
+  const t=document.getElementById('recvText').value;
+  const ta=document.getElementById('recvText'); ta.select();
+  navigator.clipboard.writeText(t).then(()=>hlog('Copied')).catch(()=>{document.execCommand('copy');hlog('Copied (fallback)')});
+  document.getElementById('copyBtn').style.display='none';
+};
 document.getElementById('joinBtn').onclick=()=>{
   document.getElementById('joinPanel').style.display='block';
   document.getElementById('hostPanel').style.display='none';
@@ -90,8 +103,12 @@ document.getElementById('connectBtn').onclick=()=>{
   document.getElementById('jstatus').textContent='connected';
   jlog('Room: '+room);
   const qr=new Html5Qrcode('scanRegion');
+  let lastScan=0;
   qr.start({facingMode:'environment'},{fps:10,qrbox:250},
     txt=>{
+      const now=Date.now();
+      if(now-lastScan<2000) return;
+      lastScan=now;
       document.getElementById('scanned').textContent=txt;
       jlog('Scanned: '+txt);
       publish(txt).then(()=>jlog('Published OK')).catch(e=>jlog('Publish error: '+e));
