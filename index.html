@@ -13,7 +13,7 @@
   input{padding:10px;border-radius:8px;border:1px solid #444;background:#222;color:#eee;flex:1;min-width:120px}
   #scanRegion{width:100%;max-width:420px;margin:12px 0;border-radius:12px;overflow:hidden}
   .status{font-size:.9rem;color:#9ca3af;margin:6px 0}
-  .log{font-family:monospace;font-size:.85rem;background:#1f2937;padding:8px;border-radius:8px;max-height:160px;overflow:auto;white-space:pre-wrap}
+  .log{font-family:monospace;font-size:.85rem;background:#1f2937;padding:8px;border-radius:8px;max-height:200px;overflow:auto;white-space:pre-wrap}
   .big{font-size:1.4rem;font-weight:700;color:#34d399}
 </style>
 </head>
@@ -40,6 +40,7 @@
   <div id="scanRegion"></div>
   <p class="status">Status: <span id="jstatus">not connected</span></p>
   <p class="status">Last scanned: <span id="scanned"></span></p>
+  <button id="testBtn" class="secondary">Send test message</button>
   <div class="log" id="jlog"></div>
 </div>
 
@@ -53,9 +54,17 @@ let client, room;
 
 function connectMqtt(onReady){
   client=mqtt.connect('wss://broker.emqx.io:8084/mqtt',{clientId:'bc-'+Math.random().toString(36).slice(2,10)});
-  client.on('connect',()=>{hlog?0:0; onReady();});
+  client.on('connect',()=>{ onReady(); });
   client.on('error',e=>{hlog('MQTT error: '+e); jlog('MQTT error: '+e)});
   client.on('reconnect',()=>{hlog('reconnecting…');jlog('reconnecting…')});
+  client.on('message',(topic,msg)=>{
+    if(document.getElementById('hostPanel').style.display!=='none'){
+      const t=msg.toString();
+      document.getElementById('recv').textContent=t;
+      hlog('Received: '+t);
+      navigator.clipboard.writeText(t).then(()=>hlog('Copied to clipboard')).catch(()=>hlog('Clipboard blocked'));
+    }
+  });
 }
 
 document.getElementById('hostBtn').onclick=()=>{
@@ -66,13 +75,7 @@ document.getElementById('hostBtn').onclick=()=>{
   connectMqtt(()=>{
     document.getElementById('hstatus').textContent='connected (waiting for phone)';
     hlog('Connected to broker. Room: '+room);
-    client.subscribe('barcodexfer/'+room);
-    client.on('message',(topic,msg)=>{
-      const t=msg.toString();
-      document.getElementById('recv').textContent=t;
-      hlog('Received: '+t);
-      navigator.clipboard.writeText(t).then(()=>hlog('Copied to clipboard')).catch(()=>hlog('Clipboard blocked'));
-    });
+    client.subscribe('barcodexfer/'+room,{qos:1},(err)=>{ if(err) hlog('Subscribe error: '+err); else hlog('Subscribed OK'); });
   });
 };
 
@@ -92,11 +95,16 @@ document.getElementById('connectBtn').onclick=()=>{
       txt=>{
         document.getElementById('scanned').textContent=txt;
         jlog('Scanned: '+txt);
-        client.publish('barcodexfer/'+room, txt);
-        jlog('Sent');
+        client.publish('barcodexfer/'+room, txt, {qos:1},(err)=>{ if(err) jlog('Publish error: '+err); else jlog('Published OK'); });
       },()=>{}
     ).catch(e=>jlog('Camera error: '+e));
   });
+};
+
+document.getElementById('testBtn').onclick=()=>{
+  if(!client||!room){jlog('Not connected');return;}
+  const t='TEST-'+Date.now();
+  client.publish('barcodexfer/'+room, t, {qos:1},(err)=>{ if(err) jlog('Publish error: '+err); else jlog('Published test: '+t); });
 };
 </script>
 </body>
