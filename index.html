@@ -3,22 +3,22 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Barcode Transfer (QR pairing, offline)</title>
+<title>Barcode Transfer</title>
 <style>
   body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#111;color:#eee}
-  h1{font-size:1.15rem;margin:0 0 12px}
+  h1{font-size:1.2rem;margin:0 0 12px}
   .row{display:flex;gap:8px;margin:8px 0;flex-wrap:wrap}
   button{padding:10px 14px;border-radius:8px;border:0;background:#3b82f6;color:#fff;font-size:1rem;cursor:pointer}
   button.secondary{background:#374151}
-  #scanRegion{width:100%;max-width:420px;margin:12px 0;border-radius:12px;overflow:hidden}
+  input{padding:10px;border-radius:8px;border:1px solid #444;background:#222;color:#eee;flex:1;min-width:120px}
+  #reader{width:100%;max-width:420px;margin:12px 0;border-radius:12px;overflow:hidden}
   .status{font-size:.9rem;color:#9ca3af;margin:6px 0}
   .log{font-family:monospace;font-size:.85rem;background:#1f2937;padding:8px;border-radius:8px;max-height:160px;overflow:auto;white-space:pre-wrap}
   .big{font-size:1.4rem;font-weight:700;color:#34d399}
-  #qrOut,#qrOut2{margin:12px 0;display:flex;justify-content:center}
 </style>
 </head>
 <body>
-<h1>Barcode → Clipboard (QR pairing, no internet)</h1>
+<h1>Barcode → Clipboard Transfer</h1>
 
 <div class="row">
   <button id="hostBtn">I'm the iPad (Receive)</button>
@@ -26,168 +26,78 @@
 </div>
 
 <div id="hostPanel" style="display:none">
-  <p class="status">Step 1: generate offer QR, scan it with iPhone.</p>
-  <div id="qrOut"></div>
-  <textarea id="offerCode" rows="3" style="width:100%;font-size:.75rem" placeholder="offer code (auto-filled)"></textarea>
-  <div class="row">
-    <button id="makeOfferBtn">Generate offer QR</button>
-    <button id="scanAnswerBtn" class="secondary">Scan answer QR</button>
-  </div>
-  <input id="pasteAnswer" placeholder="Or paste answer code here" style="width:100%">
-  <button id="applyAnswerBtn" class="secondary">Apply pasted answer</button>
-  <div id="scanRegion"></div>
-  <p class="status">Connection: <span id="hconn">not connected</span></p>
+  <p class="status">Your room code: <span class="big" id="code"></span></p>
+  <p class="status">Waiting for phone to connect…</p>
   <p class="status">Last received: <span class="big" id="recv"></span></p>
-  <div class="log" id="hlog"></div>
+  <div class="log" id="log"></div>
 </div>
 
 <div id="joinPanel" style="display:none">
   <div class="row">
-    <button id="scanOfferBtn">Scan offer QR</button>
+    <input id="codeInput" placeholder="Enter room code from iPad">
+    <button id="connectBtn">Connect</button>
   </div>
-  <div id="scanRegion2"></div>
-  <p class="status">Step 2: show answer QR, scan it with iPad.</p>
-  <div id="qrOut2"></div>
-  <textarea id="answerCode" rows="3" style="width:100%;font-size:.75rem" placeholder="answer code (auto-filled)"></textarea>
-  <input id="pasteOffer" placeholder="Or paste offer code here" style="width:100%">
-  <button id="applyOfferBtn" class="secondary">Apply pasted offer</button>
-  <p class="status">Connection: <span id="jconn">not connected</span></p>
-  <div class="row">
-    <button id="startScanBtn" class="secondary">Start barcode scan</button>
-  </div>
-  <div id="scanRegion3"></div>
+  <div id="reader"></div>
+  <p class="status" id="jstatus">Not connected</p>
   <p class="status">Last scanned: <span id="scanned"></span></p>
   <div class="log" id="jlog"></div>
 </div>
 
-<script src="https://unpkg.com/qrcodejs@1.0.0/qrcode.min.js"></script>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
 <script>
-const hlog=m=>{const d=document.getElementById('hlog');d.textContent=m+"\n"+d.textContent};
-const jlog=m=>{const d=document.getElementById('jlog');d.textContent=m+"\n"+d.textContent};
+const log=(el,m)=>{const d=document.getElementById(el);d.textContent=m+"\n"+d.textContent};
 
-let pc, channel;
-const iceConfig={iceServers:[]};
+let peer, conn;
 
-function makePC(isHost){
-  pc=new RTCPeerConnection(iceConfig);
-  if(isHost){
-    channel=pc.createDataChannel('bc');
-    channel.onopen=()=>{document.getElementById('hconn').textContent='connected';hlog('Data channel open')};
-    channel.onmessage=e=>{
-      const t=e.data;
-      document.getElementById('recv').textContent=t;
-      hlog('Received: '+t);
-      navigator.clipboard.writeText(t).then(()=>hlog('Copied to clipboard')).catch(()=>hlog('Clipboard blocked'));
-    };
-  } else {
-    pc.ondatachannel=e=>{
-      channel=e.channel;
-      channel.onopen=()=>{document.getElementById('jconn').textContent='connected';jlog('Data channel open')};
-    };
-  }
-  pc.oniceconnectionstatechange=()=>{const s=pc.iceConnectionState;if(isHost)document.getElementById('hconn').textContent=s;else document.getElementById('jconn').textContent=s};
-  return pc;
-}
-
-function waitIceComplete(p){
-  return new Promise(res=>{
-    if(p.iceGatheringState==='complete') return res();
-    p.onicegatheringstatechange=()=>{ if(p.iceGatheringState==='complete') res(); };
-    setTimeout(res,4000);
+document.getElementById('hostBtn').onclick=()=>{
+  document.getElementById('hostPanel').style.display='block';
+  document.getElementById('joinPanel').style.display='none';
+  const id='bt-'+Math.random().toString(36).slice(2,8);
+  peer=new Peer(id);
+  peer.on('open',id=>{document.getElementById('code').textContent=id;log('log','Ready. Code: '+id)});
+  peer.on('connection',c=>{
+    conn=c;
+    log('log','Phone connected');
+    c.on('data',d=>{
+      document.getElementById('recv').textContent=d;
+      log('log','Received: '+d);
+      // copy to clipboard
+      navigator.clipboard.writeText(d).then(()=>log('log','Copied to clipboard')).catch(()=>log('log','Clipboard blocked; tap to copy'));
+    });
+    c.on('close',()=>log('log','Disconnected'));
   });
-}
-
-function encodeSDP(desc){ const s=JSON.stringify({type:desc.type,sdp:desc.sdp}); const def=pako.deflate(s); return btoa(String.fromCharCode(...def)); }
-function decodeSDP(b64){ const bin=atob(b64); const arr=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i); const s=pako.inflate(arr,{to:'string'}); return JSON.parse(s); }
-
-document.getElementById('hostBtn').onclick=()=>{document.getElementById('hostPanel').style.display='block';document.getElementById('joinPanel').style.display='none'; makePC(true); hlog('Ready as receiver')};
-
-document.getElementById('makeOfferBtn').onclick=async()=>{
-  const offer=await pc.createOffer();
-  await pc.setLocalDescription(offer);
-  await waitIceComplete(pc);
-  const code=encodeSDP(pc.localDescription);
-  const out=document.getElementById('qrOut'); out.innerHTML='';
-  new QRCode(out,{text:code,width:512,height:512,correctLevel:QRCode.CorrectLevel.L});
-  document.getElementById('offerCode').value=code;
-  hlog('Offer QR generated. Scan with iPhone, or copy the code below.');
+  peer.on('error',e=>log('log','Error: '+e));
 };
 
-document.getElementById('scanAnswerBtn').onclick=()=>{
-  const qr=new Html5Qrcode('scanRegion');
-  qr.start({facingMode:'environment'},{fps:10,qrbox:250},
-    async txt=>{
-      await qr.stop();
-      try{
-        const desc=decodeSDP(txt);
-        await pc.setRemoteDescription(new RTCSessionDescription(desc));
-        hlog('Answer applied. Waiting for connection…');
-      }catch(e){hlog('Bad QR: '+e)}
-    },()=>{}
-  ).catch(e=>hlog('Camera error: '+e));
+document.getElementById('joinBtn').onclick=()=>{
+  document.getElementById('joinPanel').style.display='block';
+  document.getElementById('hostPanel').style.display='none';
+  peer=new Peer();
+  peer.on('open',id=>log('jlog','Ready as sender: '+id));
+  peer.on('error',e=>log('jlog','Error: '+e));
 };
 
-document.getElementById('applyAnswerBtn').onclick=async()=>{
-  const txt=document.getElementById('pasteAnswer').value.trim();
-  if(!txt){hlog('Paste answer code first');return;}
-  try{
-    const desc=decodeSDP(txt);
-    await pc.setRemoteDescription(new RTCSessionDescription(desc));
-    hlog('Answer applied. Waiting for connection…');
-  }catch(e){hlog('Bad code: '+e)}
-};
-document.getElementById('joinBtn').onclick=()=>{document.getElementById('joinPanel').style.display='block';document.getElementById('hostPanel').style.display='none'; makePC(false); jlog('Ready as sender')};
-
-document.getElementById('scanOfferBtn').onclick=()=>{
-  const qr=new Html5Qrcode('scanRegion2');
-  qr.start({facingMode:'environment'},{fps:10,qrbox:250},
-    async txt=>{
-      await qr.stop();
-      try{
-        const desc=decodeSDP(txt);
-        await pc.setRemoteDescription(new RTCSessionDescription(desc));
-        const answer=await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        await waitIceComplete(pc);
-        const code=encodeSDP(pc.localDescription);
-        const out=document.getElementById('qrOut2'); out.innerHTML='';
-        new QRCode(out,{text:code,width:512,height:512,correctLevel:QRCode.CorrectLevel.L});
-        document.getElementById('answerCode').value=code;
-        jlog('Answer QR generated. Scan with iPad, or copy the code below.');
-      }catch(e){jlog('Bad QR: '+e)}
-    },()=>{}
-  ).catch(e=>jlog('Camera error: '+e));
+document.getElementById('connectBtn').onclick=()=>{
+  const code=document.getElementById('codeInput').value.trim();
+  if(!code){alert('Enter code');return;}
+  conn=peer.connect(code);
+  conn.on('open',()=>{document.getElementById('jstatus').textContent='Connected';log('jlog','Connected to iPad')});
+  conn.on('error',e=>log('jlog','Error: '+e));
+  startScan();
 };
 
-document.getElementById('applyOfferBtn').onclick=async()=>{
-  const txt=document.getElementById('pasteOffer').value.trim();
-  if(!txt){jlog('Paste offer code first');return;}
-  try{
-    const desc=decodeSDP(txt);
-    await pc.setRemoteDescription(new RTCSessionDescription(desc));
-    const answer=await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    await waitIceComplete(pc);
-    const code=encodeSDP(pc.localDescription);
-    const out=document.getElementById('qrOut2'); out.innerHTML='';
-    new QRCode(out,{text:code,width:512,height:512,correctLevel:QRCode.CorrectLevel.L});
-    document.getElementById('answerCode').value=code;
-    jlog('Answer QR generated. Scan with iPad, or copy the code below.');
-  }catch(e){jlog('Bad code: '+e)}
-};
-document.getElementById('startScanBtn').onclick=()=>{
-  const qr=new Html5Qrcode('scanRegion3');
+function startScan(){
+  const qr=new Html5Qrcode('reader');
   qr.start({facingMode:'environment'},{fps:10,qrbox:250},
     txt=>{
       document.getElementById('scanned').textContent=txt;
-      jlog('Scanned: '+txt);
-      if(channel && channel.readyState==='open'){ channel.send(txt); jlog('Sent'); }
-      else jlog('Not connected yet');
-    },()=>{}
-  ).catch(e=>jlog('Camera error: '+e));
-};
+      log('jlog','Scanned: '+txt);
+      if(conn && conn.open){ conn.send(txt); log('jlog','Sent'); }
+    },
+    err=>{}
+  ).catch(e=>log('jlog','Camera error: '+e));
+}
 </script>
 </body>
 </html>
