@@ -53,7 +53,7 @@ const jlog=m=>{const d=document.getElementById('jlog');d.textContent=m+"\n"+d.te
 let client, room;
 
 function connectMqtt(onReady){
-  client=mqtt.connect('wss://broker.emqx.io:8084/mqtt',{clientId:'bc-'+Math.random().toString(36).slice(2,10)});
+  client=mqtt.connect('wss://broker.hivemq.com:8884/mqtt',{clientId:'bc-'+Math.random().toString(36).slice(2,10)});
   client.on('connect',()=>{ onReady(); });
   client.on('error',e=>{hlog('MQTT error: '+e); jlog('MQTT error: '+e)});
   client.on('reconnect',()=>{hlog('reconnecting…');jlog('reconnecting…')});
